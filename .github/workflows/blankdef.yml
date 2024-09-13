@@ -1,0 +1,62 @@
+name: Build Aseprite on Windows
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+    branches:
+      - master
+
+env:
+  BUILD_TYPE: Release
+  ASEPRITE_VERSION: 'v1.3.8.1'  # Установите версию здесь
+
+jobs:
+  build:
+    name: Build Aseprite on Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          choco install cmake --version=3.23.1
+          choco install ninja
+          choco install 7zip
+            
+      - name: Download Aseprite source
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri "https://github.com/aseprite/aseprite/archive/refs/tags/${{ env.ASEPRITE_VERSION }}.zip" -OutFile "Aseprite-source.zip"
+          Expand-Archive -Path "Aseprite-source.zip" -DestinationPath "aseprite"
+
+      - name: Setup Skia
+        run: |
+          # Добавьте команды для скачивания и установки Skia, если необходимо
+          Invoke-WebRequest -Uri "https://github.com/aseprite/skia/releases/download/m81-b607b32047/Skia-Windows-Release-X64.zip" -OutFile "Skia.zip"
+          Expand-Archive -Path "Skia.zip" -DestinationPath "skia"
+
+      - name: Configure Aseprite
+        run: |
+          cd aseprite
+          mkdir build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DLAF_BACKEND=skia -DSKIA_DIR=../../skia -DSKIA_LIBRARY_DIR=../../skia/out/Release-x64 -G Ninja ..
+
+      - name: Build Aseprite
+        run: |
+          cd aseprite/build
+          ninja aseprite
+
+      - name: Package Aseprite
+        run: |
+          cd aseprite/build/bin
+          echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
+          & 'C:\Program Files\7-Zip\7z.exe' a "Aseprite-${{ env.ASEPRITE_VERSION }}-windows.zip" *
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: aseprite-build
+          path: aseprite/build/bin/Aseprite-${{ env.ASEPRITE_VERSION }}-windows.zip
