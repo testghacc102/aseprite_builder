@@ -1,0 +1,45 @@
+name: Build Aseprite
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_release:
+        description: 'Update to latest Aseprite release'
+        required: false
+        default: 'false'
+        type: boolean
+  schedule:
+    - cron: '0 0 * * 0' # Weekly schedule (e.g., every Sunday)
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Aseprite Repository
+        uses: actions/checkout@v3
+        with:
+          repository: aseprite/aseprite # Replace with your Aseprite fork or original repo
+          ref: main # Replace with the branch or tag you want to build
+
+      - name: Install Dependencies
+        run: |
+          choco install cmake --version=3.23.5
+          choco install ninja
+          choco install visualstudio2022buildtools
+          
+      - name: Set up Visual Studio environment
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
+          
+      - name: Build Aseprite
+        run: |
+          mkdir build
+          cd build
+          cmake -G Ninja -DLAF_BACKEND=skia -DSKIA_DIR=C:\deps\skia -DSKIA_LIBRARY_DIR=C:\deps\skia\out\Release-x64 -DSKIA_LIBRARY=C:\deps\skia\out\Release-x64\skia.lib ..
+          ninja aseprite
+          
+      - name: Check if build was successful
+        run: |
+          if not exist "build\bin\aseprite.exe" exit /b 1
+          echo "Build successful"
