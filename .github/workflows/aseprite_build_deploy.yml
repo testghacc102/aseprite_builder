@@ -1,100 +1,52 @@
-name: Build and deploy Aseprite
+name: Build Aseprite
 
 on:
-  schedule:
-    - cron: '0 0 * * *'
   push:
     branches:
-      - master
-
-env:
-  BUILD_TYPE: Release
+      - main  # или другая ветка, по которой вы хотите запускать сборку
+  pull_request:
+    branches:
+      - main  # или другая ветка, по которой вы хотите запускать сборку
 
 jobs:
-  check-version:
-    name: Check latest Aseprite release
-    runs-on: ubuntu-latest
-    outputs:
-      download_url: ${{ steps.version_info.outputs.download_url }}
-      latest_tag: ${{ steps.version_info.outputs.latest_tag }}
-      should_build: ${{ steps.should_build.outputs.should_build }}
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
+  build:
+    runs-on: windows-latest
+
     steps:
-    - name: Get latest version info
-      id: version_info
-      run: |
-        data=$(curl -sL https://api.github.com/repos/aseprite/aseprite/releases/latest)
-        LATEST_TAG=$(echo "${data}" | jq -r '.tag_name')
-        DOWNLOAD_URL=$(echo "${data}" | jq -r '.assets[].browser_download_url')
-        VERSION_INFO=$(echo "${data}" | jq -r '.body')
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-        # Убедитесь, что LATEST_TAG не содержит символов, которые могут вызвать ошибки
-        echo "${LATEST_TAG}" > "${LATEST_TAG}.txt"
-        
-        # Установка переменных окружения для последующих шагов
-        echo "latest_tag=${LATEST_TAG}" >> $GITHUB_ENV
-        echo "download_url=${DOWNLOAD_URL}" >> $GITHUB_ENV
-        echo "version_info=${VERSION_INFO}" >> $GITHUB_ENV
-      shell: bash
-
-    - name: Load version from cache
-      id: version_check
-      uses: actions/cache@v2
-      with:
-        path: ${{ env.latest_tag }}.txt
-        key: cached_version
-
-    - name: Should we start new build?
-      id: should_build
-      if: steps.version_check.outputs.cache-hit != 'true'
-      run: echo "should_build=true" >> $GITHUB_ENV
-
-    - name: Create Release
-      id: create_release
-      if: env.should_build == 'true'
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ env.latest_tag }}
-        release_name: Release Aseprite ${{ env.latest_tag }}
-        body: |
-          ${{ env.version_info }}
-        draft: true
-        prerelease: false
-
-  build-aseprite:
-    name: Build Aseprite
-    needs: check-version
-    if: ${{ needs.check-version.outputs.should_build == 'true' }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-       matrix:
-         os: [windows-latest]
-       fail-fast: false    
-    steps:
-      - name: (Windows) Install dependencies
-        if: matrix.os == 'windows-latest'
-        uses: seanmiddleditch/gha-setup-ninja@v1
+      - name: Setup Visual Studio
+        uses: microsoft/setup-msbuild@v1.1
         with:
-          version: '1.9.0'
+          vs-version: 'latest' # или укажите конкретную версию, если требуется
 
-      - name: (Ubuntu) Install dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt install -y cmake ninja-build libxcursor-dev libxi-dev libgl1-mesa-dev
-
-      - name: (macOS) Install dependencies
-        if: matrix.os == 'macOS-latest'
-        run: brew install ninja p7zip
-
-      - name: Get Skia from cache
-        id: skia-cache
-        uses: actions/cache@v2
-        with:
-          path: skia
-          key: skia-${{ matrix.os }}-cache
-
-      - name: Download Skia if not in cache
-        if: steps.skia-cache.outputs.cache-hit != 'true'
+      - name: Install dependencies
         run: |
-          curl -o Skia-${{ runner.os }}-Release-X64.zip -L https://github.com/aseprite/skia/releases/download/m81-b607b32047/Skia-${{ runner.os }}-Release-
+          choco install cmake --version=3.21.0
+          choco install ninja
+
+      - name: Create build directory and configure CMake
+        run: |
+          mkdir C:\aseprite
+          cd C:\aseprite
+          git clone https://github.com/aseprite/aseprite.git .
+          mkdir build
+          cd build
+          cmake -G Ninja -DLAF_BACKEND=skia ..
+
+      - name: Build Aseprite
+        run: |
+          cd C:\aseprite\build
+          ninja aseprite
+
+      - name: Package Aseprite
+        run: |
+          cd C:\aseprite\build
+          Compress-Archive -Path "bin\aseprite.exe" -DestinationPath "aseprite-package.zip"
+
+      - name: Upload Aseprite Package
+        uses: actions/upload-artifact@v3
+        with:
+          name: aseprite-package
+          path: C:\aseprite\build\aseprite-package.zip
